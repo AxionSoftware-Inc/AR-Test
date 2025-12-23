@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Uyda Test: Navigatsiya</title>
+    <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
+    <script src="https://unpkg.com/aframe-look-at-component@0.8.0/dist/aframe-look-at-component.min.js"></script>
+</head>
+<body style="margin: 0; overflow: hidden;">
+
+    <div style="position: fixed; top: 10px; width: 100%; text-align: center; z-index: 999;">
+        <select id="rooms" style="font-size: 20px; padding: 10px;">
+            <option value="" disabled selected>Qayerga boramiz?</option>
+            <option value="oshxona">Oshxona</option>
+            <option value="bedroom">Yotoqxona</option>
+        </select>
+        <button onclick="startNav()" style="font-size: 20px; padding: 10px;">KETDIK</button>
+    </div>
+
+    <a-scene vr-mode-ui="false" renderer="logarithmicDepthBuffer: true;">
+        
+        <a-assets>
+            <a-asset-item id="my-arrow" src="./arrow.glb"></a-asset-item>
+        </a-assets>
+
+        <a-entity id="camera-rig">
+            <a-entity id="camera" camera look-controls></a-entity>
+        </a-entity>
+
+        <a-entity id="arrow-wrapper" visible="false">
+            <a-entity 
+                gltf-model="#my-arrow" 
+                position="0 -0.5 -2" 
+                scale="0.5 0.5 0.5"
+                animation="property: position; to: 0 -0.3 -2; dir: alternate; dur: 1000; loop: true"> 
+                </a-entity>
+            
+            <a-text id="label-text" value="" color="black" position="0 0.5 -2" align="center" scale="2 2 2"></a-text>
+        </a-entity>
+
+    </a-scene>
+
+    <script>
+        // --- UYINGIZ UCHUN SOZLAMALAR ---
+        
+        // 1. KOMPASNI TO'G'IRLASH (Offset)
+        // Telefoningizdagi kompas ilovasini oching.
+        // Uyingizning koridoriga qarab turing. 
+        // Agar kompas "North (0°)" ko'rsatmasa, qancha farq borligini shu yerga yozasiz.
+        // Hozircha 0 da tursin, test qilib ko'rib o'zgartirasiz.
+        const CORRIDOR_OFFSET = 0; 
+
+        // 2. XONALAR RO'YXATI
+        const db = {
+            'oshxona': { label: "Oshxona (Oldinda)" },
+            'bedroom': { label: "Yotoqxona (Orqada)" }
+        };
+
+        function startNav() {
+            const val = document.getElementById('rooms').value;
+            if(!val) return alert("Xonani tanlang!");
+
+            // Ruxsat so'rash (iOS 13+ uchun kerak, Androidda avtomatik)
+            if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+                DeviceOrientationEvent.requestPermission()
+                    .then(response => {
+                        if (response == 'granted') init(val);
+                        else alert("Ruxsat berilmadi!");
+                    })
+                    .catch(console.error);
+            } else {
+                init(val);
+            }
+        }
+
+        function init(targetId) {
+            const arrow = document.getElementById('arrow-wrapper');
+            const text = document.getElementById('label-text');
+            const targetData = db[targetId];
+
+            arrow.setAttribute('visible', 'true');
+            text.setAttribute('value', targetData.label);
+
+            window.addEventListener('deviceorientation', function(event) {
+                let alpha = event.alpha || 0; // Kompas (0-360)
+                
+                // MANTIQ:
+                // Agar 'oshxona' tanlansa, strelka 0 gradusga (Shimolga) qaraydi
+                // Agar 'bedroom' tanlansa, strelka 180 gradusga (Janubga) qaraydi
+                // Bu oddiy test uchun. Real loyihada xonaning haqiqiy gradusini yozamiz.
+                
+                let targetAngle = (targetId === 'oshxona') ? 0 : 180;
+                
+                // Strelkani to'g'ri burish formulasi:
+                // Maqsad gradusi - Telefon gradusi + Kalibrovka
+                let rotationY = targetAngle - alpha + CORRIDOR_OFFSET;
+                
+                arrow.setAttribute('rotation', `0 ${rotationY} 0`);
+            });
+        }
+    </script>
+</body>
+</html>
