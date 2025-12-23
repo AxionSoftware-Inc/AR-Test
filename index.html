@@ -3,152 +3,136 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Kasalxona Navigatsiyasi (Markersiz)</title>
+    <title>Markerless AR (Fixed Model)</title>
     
     <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
-    <script src="https://unpkg.com/aframe-look-at-component@0.8.0/dist/aframe-look-at-component.min.js"></script>
     <script src="https://unpkg.com/aframe-hit-test-controls@2.0.0/dist/aframe-hit-test-controls.min.js"></script>
 
     <style>
         body { margin: 0; font-family: sans-serif; }
-        
-        /* UI Ekrani (Kamera ustida) */
+
+        /* UI Ekrani (Tugmalar) */
         #overlay {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             z-index: 5; pointer-events: none;
             display: flex; flex-direction: column; justify-content: flex-end; align-items: center;
-            padding-bottom: 40px;
+            padding-bottom: 50px;
         }
 
         .btn {
             pointer-events: auto;
-            background: #007bff; color: white; border: none;
-            padding: 15px 40px; font-size: 18px; font-weight: bold; border-radius: 50px;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-            display: none; transition: transform 0.2s;
-        }
-        .btn:active { transform: scale(0.95); }
-
-        #msg {
-            background: rgba(0, 0, 0, 0.6); color: white; 
-            padding: 10px 20px; border-radius: 20px; margin-bottom: 20px;
-            text-align: center; font-size: 16px; width: 80%;
+            background: linear-gradient(45deg, #ff00cc, #3333ff);
+            color: white; border: none;
+            padding: 15px 50px; font-size: 18px; font-weight: bold; border-radius: 50px;
+            box-shadow: 0 0 20px rgba(255, 0, 204, 0.5);
+            display: none; /* Boshida yashirin */
+            text-transform: uppercase;
         }
 
-        /* Start tugmasi (Eng boshida chiqadi) */
-        #start-ar-btn {
-            display: block; pointer-events: auto;
-            background: #28a745; margin-bottom: 50%;
+        #status-msg {
+            background: rgba(0, 0, 0, 0.7);
+            color: #00ff00; padding: 10px 20px; border-radius: 10px;
+            margin-bottom: 20px; text-align: center;
+            font-size: 14px; width: 80%;
+            border: 1px solid #00ff00;
         }
+
+        #start-btn { display: block; background: #00b894; }
     </style>
 </head>
 <body>
 
     <div id="overlay">
-        <div id="msg">Navigatsiyani boshlash uchun tugmani bosing</div>
-        <button id="start-ar-btn" class="btn" onclick="startSession()">AR BOSHLASH 🚀</button>
-        <button id="place-path-btn" class="btn" onclick="placePath()">Yo'lni chizish 📍</button>
+        <div id="status-msg">AR rejimni boshlash uchun tugmani bosing</div>
+        <button id="start-btn" class="btn" onclick="startAR()">AR BOSHLASH 🚀</button>
+        <button id="place-btn" class="btn" onclick="placeModel()">JOYLASHTIRISH 📍</button>
     </div>
 
-    <a-scene webxr="requiredFeatures: hit-test; optionalFeatures: dom-overlay; overlayElement: #overlay;" 
+    <a-scene webxr="requiredFeatures: hit-test; optionalFeatures: dom-overlay; overlayElement: #overlay"
              vr-mode-ui="enabled: false"
              renderer="colorManagement: true; physicallyCorrectLights: true;">
-        
+
         <a-light type="ambient" intensity="1"></a-light>
-        <a-light type="directional" position="-1 2 1" intensity="1.5"></a-light>
+        <a-light type="directional" position="-1 2 1" intensity="2"></a-light>
 
-        <a-entity id="reticle" ar-hit-test="target: #path-root; type: map">
-            <a-ring rotation="-90 0 0" radius-inner="0.1" radius-outer="0.15" color="white" opacity="0.8">
-                <a-circle radius="0.05" color="#007bff"></a-circle>
-            </a-ring>
+        <a-entity id="reticle" ar-hit-test="target: #my-model; type: map">
+            <a-ring rotation="-90 0 0" radius-inner="0.15" radius-outer="0.2" color="white" opacity="0.8"></a-ring>
+            <a-circle rotation="-90 0 0" radius="0.05" color="yellow"></a-circle>
         </a-entity>
 
-        <a-entity id="path-root" visible="false" position="0 0 0">
+        <a-entity id="my-model" visible="false" position="0 0 0">
             
-            <a-cylinder color="green" height="0.1" radius="0.3"></a-cylinder>
-            <a-text value="START" position="0 0.5 0" align="center" color="green" scale="2 2 2" look-at="[camera]"></a-text>
+            <a-box position="0 0.25 0" height="0.5" width="0.2" depth="0.2" color="#3333ff"></a-box>
+            <a-sphere position="0 0.6 0" radius="0.15" color="#ff00cc" 
+                      animation="property: position; to: 0 0.7 0; dir: alternate; dur: 1000; loop: true"></a-sphere>
+            
+            <a-ring rotation="-90 0 0" radius-inner="0.4" radius-outer="0.45" color="cyan"
+                    animation="property: scale; from: 1 1 1; to: 1.5 1.5 1.5; dir: alternate; dur: 1500; loop: true"></a-ring>
 
-            <a-entity id="arrow-container"></a-entity>
-
-            <a-box position="0 0 -30" color="red" scale="0.5 2 0.5"></a-box>
-            <a-text value="MANZIL (30m)" position="0 2.5 -30" align="center" color="red" scale="4 4 4" look-at="[camera]"></a-text>
+            <a-text value="SHU YERDAGI MODEL" position="0 1 0" align="center" color="white" scale="2 2 2" side="double"></a-text>
 
         </a-entity>
 
-        <a-camera position="0 1.6 0"></a-camera>
     </a-scene>
 
     <script>
         const scene = document.querySelector('a-scene');
         const reticle = document.getElementById('reticle');
-        const pathRoot = document.getElementById('path-root');
-        const arrowContainer = document.getElementById('arrow-container');
-        
-        // 30 metrga strelka chizish funksiyasi
-        function createArrows() {
-            for(let i=1; i<=20; i++) { // Har 1.5 metrda bitta strelka
-                let zPos = -i * 1.5;
-                
-                // Strelka (Konus)
-                let arrow = document.createElement('a-cone');
-                arrow.setAttribute('position', `0 0.1 ${zPos}`);
-                arrow.setAttribute('rotation', '90 0 0'); // Yerga yotqizish
-                arrow.setAttribute('radius-bottom', '0.2');
-                arrow.setAttribute('height', '0.5');
-                arrow.setAttribute('color', '#007bff');
-                arrow.setAttribute('opacity', '0.8');
-                
-                // Kichik animatsiya
-                arrow.setAttribute('animation', `property: opacity; from: 0.4; to: 1; dur: 1000; dir: alternate; loop: true; delay: ${i*100}`);
+        const model = document.getElementById('my-model');
+        const placeBtn = document.getElementById('place-btn');
+        const statusMsg = document.getElementById('status-msg');
 
-                arrowContainer.appendChild(arrow);
-            }
-        }
+        let isPlaced = false;
 
-        createArrows();
-
-        function startSession() {
-            document.getElementById('start-ar-btn').style.display = 'none';
-            scene.enterVR(); // AR rejimga kirish
+        function startAR() {
+            // AR sessiyaga kirish
+            document.getElementById('start-btn').style.display = 'none';
+            scene.enterVR();
         }
 
         // WebXR ishga tushganda
         scene.addEventListener('enter-vr', function () {
-            document.getElementById('msg').innerText = "Kamerani polga qarating va biroz harakatlantiring...";
+            statusMsg.innerText = "Kamerani polga qarating va sekin harakatlantiring...";
             
-            // Reticle (nishon) paydo bo'lishini kutamiz
-            // Hit-test komponenti o'zi polni qidiradi
-            const checkReticle = setInterval(() => {
-                if (reticle.object3D.visible) {
-                    document.getElementById('place-path-btn').style.display = 'block';
-                    document.getElementById('msg').innerText = "Nishon paydo bo'ldi! Start joyini belgilang.";
-                    clearInterval(checkReticle);
+            // Nishonni kuzatish
+            const interval = setInterval(() => {
+                // Agar nishon ko'rinsa va model hali qo'yilmagan bo'lsa
+                if (reticle.object3D.visible && !isPlaced) {
+                    placeBtn.style.display = 'block';
+                    statusMsg.innerText = "Pol topildi! Modelni joylashtiring.";
+                    statusMsg.style.borderColor = "cyan";
+                } else if (!reticle.object3D.visible && !isPlaced) {
+                    placeBtn.style.display = 'none';
+                    statusMsg.innerText = "Pol qidirilmoqda... Yoruqroq joyga o'ting.";
+                    statusMsg.style.borderColor = "red";
                 }
-            }, 500);
+            }, 200);
         });
 
-        // Yo'lni joylashtirish
-        function placePath() {
+        function placeModel() {
             if (!reticle.object3D.visible) return;
 
-            // 1. Nishon turgan joyni olamiz
-            const pos = reticle.getAttribute('position');
-            const rot = reticle.getAttribute('rotation');
+            // 1. Nishon turgan joyni aniqlaymiz
+            const position = reticle.getAttribute('position');
+            const rotation = reticle.getAttribute('rotation');
 
-            // 2. Yo'lni o'sha yerga qo'yamiz
-            pathRoot.setAttribute('position', pos);
+            // 2. Modelni o'sha yerga ko'chiramiz
+            model.setAttribute('position', position);
+            // Modelni faqat Y o'qi bo'yicha (yerga parallel) buramiz, qiyshayib qolmasligi uchun
+            model.setAttribute('rotation', {x: 0, y: rotation.y, z: 0});
+
+            // 3. Modelni ko'rsatamiz
+            model.setAttribute('visible', 'true');
             
-            // Muhim: Biz yo'lni foydalanuvchi qarab turgan tomonga burishimiz kerak
-            // Hozircha oddiy qilib joylashtiramiz. 
-            // Idealda: pathRoot.object3D.rotation.y = camera.rotation.y;
-            
-            // 3. Ko'rsatamiz
-            pathRoot.setAttribute('visible', 'true');
-            reticle.setAttribute('visible', 'false'); // Nishonni o'chiramiz
-            
-            // 4. UI o'zgarishi
-            document.getElementById('place-path-btn').style.display = 'none';
-            document.getElementById('msg').innerText = "Strelkalar bo'ylab yuring!";
+            // 4. Nishonni o'chiramiz (endi kerak emas)
+            reticle.removeAttribute('ar-hit-test'); 
+            reticle.setAttribute('visible', 'false');
+
+            // 5. UI ni yangilaymiz
+            isPlaced = true;
+            placeBtn.style.display = 'none';
+            statusMsg.innerText = "Model joylashtirildi! Endi aylanib ko'ring.";
+            statusMsg.style.background = "green";
         }
     </script>
 </body>
