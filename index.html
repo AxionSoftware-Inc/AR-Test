@@ -2,102 +2,143 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>WebXR Auto-Place Model</title>
+    <title>WebXR Manual Fix</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <style>
-        /* Sening kodingdagi uslublar */
-        html, body { margin: 0; padding: 0; overflow: hidden; background: black; }
+        body { margin: 0; padding: 0; overflow: hidden; background-color: black; }
         
-        #start {
-            position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
-            padding: 14px 22px; font-size: 18px; z-index: 10;
-            background: rgba(255, 255, 255, 0.9); border: none; border-radius: 4px;
+        #overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; /* Bosishlarni o'tkazib yuboradi */
+            display: flex; flex-direction: column; justify-content: flex-end; align-items: center;
+            z-index: 10;
+        }
+
+        #start-btn {
+            pointer-events: auto; /* Faqat tugma bosiladi */
+            padding: 15px 30px; font-size: 18px; 
+            background: white; border: none; border-radius: 5px; margin-bottom: 50px;
+        }
+
+        #debug {
+            position: fixed; top: 10px; left: 10px; color: yellow; 
+            font-family: monospace; font-size: 14px; background: rgba(0,0,0,0.5); padding: 5px;
         }
     </style>
 </head>
 <body>
 
-<button id="start">Start AR</button>
+<div id="debug">Holat: Kutilyapti...</div>
+
+<div id="overlay">
+    <button id="start-btn">AR BOSHLASH</button>
+</div>
 
 <script type="module">
     import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
+    import { GLTFLoader } from 'https://unpkg.com/three@0.160.0/examples/jsm/loaders/GLTFLoader.js';
 
     let camera, scene, renderer;
     let model;
+    const debugDiv = document.getElementById('debug');
 
-    // Tugma bosilganda ishga tushadi
-    document.getElementById('start').addEventListener('click', initAR);
+    function log(msg) {
+        debugDiv.innerText = "Log: " + msg;
+    }
+
+    document.getElementById('start-btn').addEventListener('click', initAR);
 
     async function initAR() {
         if (!navigator.xr) {
-            alert("WebXR topilmadi (HTTPS va Chrome kerak)");
+            alert("WebXR topilmadi");
             return;
         }
 
-        // 1. SAHNANI YARATAMIZ
+        log("Sessiya so'ralyapti...");
+
+        // 1. SETUP
+        const container = document.createElement('div');
+        document.body.appendChild(container);
+
         scene = new THREE.Scene();
-        // ⚠️ ENG MUHIM JOYI: Sening kodingdagi "gl.clearColor(0,0,0,0)" analogi:
+        // FONI YO'Q QILAMIZ (Eng muhimi)
         scene.background = null; 
 
-        // 2. KAMERA
         camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
 
-        // 3. YORUG'LIK (Model qop-qora bo'lmasligi uchun)
-        const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 3);
-        light.position.set(0.5, 1, 0.25);
+        // Yorug'lik
+        const light = new THREE.AmbientLight(0xffffff, 1); 
         scene.add(light);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 2);
+        dirLight.position.set(0, 5, 0);
+        scene.add(dirLight);
 
-        // 4. RENDERER (WebXR ni yoqamiz)
+        // 2. RENDERER (Manual rejim)
         renderer = new THREE.WebGLRenderer({ 
             antialias: true, 
-            alpha: true // ⚠️ KAMERA OCHILISHI UCHUN SHART
+            alpha: true // SHART
         });
         renderer.setPixelRatio(window.devicePixelRatio);
         renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.xr.enabled = true; // WebXR aktivlashtiramiz
+        renderer.xr.enabled = true;
         
-        // ⚠️ Sening kodingdagi "gl.clear" logikasi:
-        renderer.setClearColor(0x000000, 0); 
-        
-        document.body.appendChild(renderer.domElement);
+        // 🚨 MUHIM O'ZGARISH: Three.js avtomatik tozalashni o'chiramiz
+        renderer.autoClear = false; 
 
-        // 5. MODEL YARATISH (Avtomatik)
-        // Hozircha murakkab shakl (TorusKnot) yaratamiz, xuddi haqiqiy modeldek.
-        const geometry = new THREE.TorusKnotGeometry(0.2, 0.05, 100, 16); 
-        const material = new THREE.MeshStandardMaterial({ color: 0x00aaff, roughness: 0.1, metalness: 0.5 });
+        container.appendChild(renderer.domElement);
+
+        // 3. MODEL (Yoki Test Kubi)
+        // Test uchun qizil kub (agar model yuklanmasa ham ko'rinishi uchun)
+        const geometry = new THREE.BoxGeometry(0.3, 0.3, 0.3);
+        const material = new THREE.MeshStandardMaterial({ color: 0xff0000 });
         model = new THREE.Mesh(geometry, material);
-
-        // 📍 JOYLASHTIRISH (Logika):
-        // WebXR da boshlang'ich nuqta (0,0,0) - bu telefoning turgan joyi.
-        // Biz modelni Z o'qi bo'yicha -1.5 metr (oldinga) suramiz.
-        model.position.set(0, 0, -1.5);
-        
+        model.position.set(0, 0, -1.5); // 1.5 metr oldinda
         scene.add(model);
 
-        // 6. SESSIYANI BOSHLASH
-        const session = await navigator.xr.requestSession('immersive-ar', {
-            requiredFeatures: ['local'] // 'local' bu 6DoF yurishni ta'minlaydi
+        // Agar haqiqiy model bo'lsa, buni ochib qo'y:
+        /*
+        const loader = new GLTFLoader();
+        loader.load('model.glb', (gltf) => {
+            scene.remove(model); // Kubni o'chiramiz
+            model = gltf.scene;
+            model.position.set(0, -0.5, -1.5);
+            model.scale.set(0.5, 0.5, 0.5);
+            scene.add(model);
         });
+        */
 
-        renderer.xr.setReferenceSpaceType('local');
-        renderer.xr.setSession(session);
+        // 4. SESSIYA
+        try {
+            const session = await navigator.xr.requestSession('immersive-ar', {
+                requiredFeatures: ['local'],
+                optionalFeatures: ['dom-overlay'],
+                domOverlay: { root: document.getElementById('overlay') }
+            });
 
-        // Tugmani yo'qotamiz
-        document.getElementById('start').style.display = 'none';
+            renderer.xr.setReferenceSpaceType('local');
+            renderer.xr.setSession(session);
 
-        // Render loop
-        renderer.setAnimationLoop(render);
-    }
+            document.getElementById('start-btn').style.display = 'none';
+            log("AR boshlandi!");
 
-    function render() {
-        // Modelni sekin aylantiramiz (jonli ekanini bilish uchun)
-        if (model) {
-            model.rotation.x += 0.005;
-            model.rotation.y += 0.01;
+            // 5. RENDER LOOP (Qo'lda chizish)
+            renderer.setAnimationLoop(() => {
+                // Sening raw kodingdagi kabi majburan tozalaymiz
+                renderer.clear(); 
+                
+                // Modelni aylantiramiz
+                if(model) {
+                    model.rotation.y += 0.01;
+                }
+
+                renderer.render(scene, camera);
+            });
+
+        } catch (e) {
+            log("Xatolik: " + e.message);
+            alert("Xato: " + e.message);
         }
-        renderer.render(scene, camera);
     }
-
 </script>
 </body>
 </html>
