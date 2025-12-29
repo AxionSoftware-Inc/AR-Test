@@ -1,144 +1,215 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>WebXR Manual Fix</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <style>
-        body { margin: 0; padding: 0; overflow: hidden; background-color: black; }
-        
-        #overlay {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            pointer-events: none; /* Bosishlarni o'tkazib yuboradi */
-            display: flex; flex-direction: column; justify-content: flex-end; align-items: center;
-            z-index: 10;
-        }
-
-        #start-btn {
-            pointer-events: auto; /* Faqat tugma bosiladi */
-            padding: 15px 30px; font-size: 18px; 
-            background: white; border: none; border-radius: 5px; margin-bottom: 50px;
-        }
-
-        #debug {
-            position: fixed; top: 10px; left: 10px; color: yellow; 
-            font-family: monospace; font-size: 14px; background: rgba(0,0,0,0.5); padding: 5px;
-        }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Raw WebXR 6DoF</title>
+<style>
+  body { margin: 0; overflow: hidden; background: #000; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+  #btn {
+    position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
+    padding: 12px 24px; font-size: 18px; z-index: 10;
+    background: white; border: none; border-radius: 4px;
+  }
+</style>
 </head>
 <body>
 
-<div id="debug">Holat: Kutilyapti...</div>
+<button id="btn">START AR</button>
+<canvas id="xr-canvas"></canvas>
 
-<div id="overlay">
-    <button id="start-btn">AR BOSHLASH</button>
-</div>
+<script>
+// --- SHADERLAR (Rangli 3D Piramida chizish uchun) ---
+const vertShaderSource = `
+  attribute vec3 aPos;
+  attribute vec3 aColor;
+  varying vec3 vColor;
+  uniform mat4 uModel;
+  uniform mat4 uView;
+  uniform mat4 uProj;
+  void main() {
+    gl_Position = uProj * uView * uModel * vec4(aPos, 1.0);
+    vColor = aColor;
+  }
+`;
 
-<script type="module">
-    import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
-    import { GLTFLoader } from 'https://unpkg.com/three@0.160.0/examples/jsm/loaders/GLTFLoader.js';
+const fragShaderSource = `
+  precision mediump float;
+  varying vec3 vColor;
+  void main() {
+    gl_FragColor = vec4(vColor, 1.0);
+  }
+`;
 
-    let camera, scene, renderer;
-    let model;
-    const debugDiv = document.getElementById('debug');
+// --- O'ZGARUVCHILAR ---
+let gl, session, refSpace;
+let program, uModel, uView, uProj;
+let modelMatrix = null; // Modelning dunyodagi joyi
 
-    function log(msg) {
-        debugDiv.innerText = "Log: " + msg;
-    }
+// Tugma bosilganda
+document.getElementById('btn').addEventListener('click', async () => {
+  if (!navigator.xr) return alert("WebXR yo'q");
+  
+  // 1. Context olish
+  const canvas = document.getElementById('xr-canvas');
+  gl = canvas.getContext('webgl', { xrCompatible: true });
 
-    document.getElementById('start-btn').addEventListener('click', initAR);
+  // 2. Shaderlarni kompilyatsiya qilish
+  initShaders();
+  initBuffers();
 
-    async function initAR() {
-        if (!navigator.xr) {
-            alert("WebXR topilmadi");
-            return;
-        }
+  // 3. Sessiya ochish
+  session = await navigator.xr.requestSession('immersive-ar', { requiredFeatures: ['local'] });
+  session.updateRenderState({ baseLayer: new XRWebGLLayer(session, gl) });
+  
+  refSpace = await session.requestReferenceSpace('local');
+  
+  document.getElementById('btn').style.display = 'none';
+  session.requestAnimationFrame(onFrame);
+});
 
-        log("Sessiya so'ralyapti...");
+// --- RENDER LOOP ---
+function onFrame(t, frame) {
+  session.requestAnimationFrame(onFrame);
+  const pose = frame.getViewerPose(refSpace);
+  if (!pose) return;
 
-        // 1. SETUP
-        const container = document.createElement('div');
-        document.body.appendChild(container);
+  const layer = session.renderState.baseLayer;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, layer.framebuffer);
+  
+  // Ekranni tozalash (MUHIM: Transparent bo'lishi uchun)
+  gl.clearColor(0, 0, 0, 0);
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-        scene = new THREE.Scene();
-        // FONI YO'Q QILAMIZ (Eng muhimi)
-        scene.background = null; 
+  // Agar Model joylashmagan bo'lsa, uni userning oldiga qo'yamiz
+  if (!modelMatrix) {
+    // Userning hozirgi matritsasini olamiz
+    const transform = pose.views[0].transform;
+    // Oddiy matematika bilan 1.5 metr oldinga suramiz
+    modelMatrix = placeObjectInFront(transform.matrix, 1.5);
+  }
 
-        camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
+  // Har bir ko'z uchun chizamiz
+  pose.views.forEach(view => {
+    const vp = layer.getViewport(view);
+    gl.viewport(vp.x, vp.y, vp.width, vp.height);
 
-        // Yorug'lik
-        const light = new THREE.AmbientLight(0xffffff, 1); 
-        scene.add(light);
-        const dirLight = new THREE.DirectionalLight(0xffffff, 2);
-        dirLight.position.set(0, 5, 0);
-        scene.add(dirLight);
+    gl.useProgram(program);
 
-        // 2. RENDERER (Manual rejim)
-        renderer = new THREE.WebGLRenderer({ 
-            antialias: true, 
-            alpha: true // SHART
-        });
-        renderer.setPixelRatio(window.devicePixelRatio);
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.xr.enabled = true;
-        
-        // 🚨 MUHIM O'ZGARISH: Three.js avtomatik tozalashni o'chiramiz
-        renderer.autoClear = false; 
+    // Matritsalarni shaderga jo'natish
+    gl.uniformMatrix4fv(uModel, false, modelMatrix);
+    gl.uniformMatrix4fv(uView, false, view.transform.inverse.matrix);
+    gl.uniformMatrix4fv(uProj, false, view.projectionMatrix);
 
-        container.appendChild(renderer.domElement);
+    // Chizish (Piramida - 12 ta nuqta)
+    gl.drawArrays(gl.TRIANGLES, 0, 12);
+  });
+}
 
-        // 3. MODEL (Yoki Test Kubi)
-        // Test uchun qizil kub (agar model yuklanmasa ham ko'rinishi uchun)
-        const geometry = new THREE.BoxGeometry(0.3, 0.3, 0.3);
-        const material = new THREE.MeshStandardMaterial({ color: 0xff0000 });
-        model = new THREE.Mesh(geometry, material);
-        model.position.set(0, 0, -1.5); // 1.5 metr oldinda
-        scene.add(model);
+// --- SETUP FUNKSIYALARI ---
 
-        // Agar haqiqiy model bo'lsa, buni ochib qo'y:
-        /*
-        const loader = new GLTFLoader();
-        loader.load('model.glb', (gltf) => {
-            scene.remove(model); // Kubni o'chiramiz
-            model = gltf.scene;
-            model.position.set(0, -0.5, -1.5);
-            model.scale.set(0.5, 0.5, 0.5);
-            scene.add(model);
-        });
-        */
+function initShaders() {
+  const vs = createShader(gl.VERTEX_SHADER, vertShaderSource);
+  const fs = createShader(gl.FRAGMENT_SHADER, fragShaderSource);
+  program = gl.createProgram();
+  gl.attachShader(program, vs);
+  gl.attachShader(program, fs);
+  gl.linkProgram(program);
+  
+  uModel = gl.getUniformLocation(program, 'uModel');
+  uView = gl.getUniformLocation(program, 'uView');
+  uProj = gl.getUniformLocation(program, 'uProj');
+}
 
-        // 4. SESSIYA
-        try {
-            const session = await navigator.xr.requestSession('immersive-ar', {
-                requiredFeatures: ['local'],
-                optionalFeatures: ['dom-overlay'],
-                domOverlay: { root: document.getElementById('overlay') }
-            });
+function createShader(type, source) {
+  const s = gl.createShader(type);
+  gl.shaderSource(s, source);
+  gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+    console.error(gl.getShaderInfoLog(s));
+  }
+  return s;
+}
 
-            renderer.xr.setReferenceSpaceType('local');
-            renderer.xr.setSession(session);
+function initBuffers() {
+  // Piramida (Uchburchak) nuqtalari
+  // X, Y, Z coordinates
+  const vertices = new Float32Array([
+    // Oldi yuz (Qizil)
+     0.0,  0.2, -0.2, // Tepasi
+    -0.2, -0.2, -0.0, // Chap
+     0.2, -0.2, -0.0, // O'ng
 
-            document.getElementById('start-btn').style.display = 'none';
-            log("AR boshlandi!");
+    // O'ng yuz (Yashil)
+     0.0,  0.2, -0.2,
+     0.2, -0.2, -0.0,
+     0.0, -0.2, -0.4, // Orqa
 
-            // 5. RENDER LOOP (Qo'lda chizish)
-            renderer.setAnimationLoop(() => {
-                // Sening raw kodingdagi kabi majburan tozalaymiz
-                renderer.clear(); 
-                
-                // Modelni aylantiramiz
-                if(model) {
-                    model.rotation.y += 0.01;
-                }
+    // Chap yuz (Ko'k)
+     0.0,  0.2, -0.2,
+     0.0, -0.2, -0.4,
+    -0.2, -0.2, -0.0,
 
-                renderer.render(scene, camera);
-            });
+    // Tag qismi (Sariq)
+    -0.2, -0.2, -0.0,
+     0.2, -0.2, -0.0,
+     0.0, -0.2, -0.4
+  ]);
 
-        } catch (e) {
-            log("Xatolik: " + e.message);
-            alert("Xato: " + e.message);
-        }
-    }
+  const colors = new Float32Array([
+    // Qizil
+    1,0,0, 1,0,0, 1,0,0,
+    // Yashil
+    0,1,0, 0,1,0, 0,1,0,
+    // Ko'k
+    0,0,1, 0,0,1, 0,0,1,
+    // Sariq
+    1,1,0, 1,1,0, 1,1,0
+  ]);
+
+  const posBuffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, posBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+  const aPos = gl.getAttribLocation(program, 'aPos');
+  gl.enableVertexAttribArray(aPos);
+  gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 0, 0);
+
+  const colBuffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, colBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, colors, gl.STATIC_DRAW);
+  const aColor = gl.getAttribLocation(program, 'aColor');
+  gl.enableVertexAttribArray(aColor);
+  gl.vertexAttribPointer(aColor, 3, gl.FLOAT, false, 0, 0);
+}
+
+// --- MATEMATIKA (Kutubxonasiz) ---
+// Modelni userning oldiga qo'yish logikasi
+function placeObjectInFront(matrix, distance) {
+  // Matritsadan nusxa olamiz
+  let m = new Float32Array(matrix);
+  
+  // WebXR matritsasida:
+  // 0,1,2,3  -> Right vector
+  // 4,5,6,7  -> Up vector
+  // 8,9,10,11 -> Back vector (Z)
+  // 12,13,14,15 -> Position (X,Y,Z,1)
+
+  // Biz "Back vector" (Z) yo'nalishida teskari yuramiz (minus Z = oldinga)
+  // m[8], m[9], m[10] bu Z o'qining yo'nalishi
+  
+  const forwardX = -m[8];
+  const forwardY = -m[9];
+  const forwardZ = -m[10];
+
+  // Hozirgi joyiga "distance" miqdorini qo'shamiz
+  m[12] += forwardX * distance;
+  m[13] += forwardY * distance;
+  m[14] += forwardZ * distance;
+
+  return m;
+}
+
 </script>
 </body>
 </html>
