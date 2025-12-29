@@ -2,111 +2,102 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Fixed AR Camera</title>
+    <title>WebXR Auto-Place Model</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <style>
-        body { margin: 0; padding: 0; overflow: hidden; background-color: black; }
-        #enter-ar {
+        /* Sening kodingdagi uslublar */
+        html, body { margin: 0; padding: 0; overflow: hidden; background: black; }
+        
+        #start {
             position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
-            padding: 12px 24px; border: 1px solid white; border-radius: 4px;
-            background: rgba(0, 0, 0, 0.5); color: white; font-size: 16px;
-            z-index: 999; cursor: pointer;
+            padding: 14px 22px; font-size: 18px; z-index: 10;
+            background: rgba(255, 255, 255, 0.9); border: none; border-radius: 4px;
         }
     </style>
 </head>
 <body>
 
-<button id="enter-ar">START AR (Fixed)</button>
+<button id="start">Start AR</button>
 
 <script type="module">
     import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
 
     let camera, scene, renderer;
-    let mesh;
+    let model;
 
-    function init() {
-        const container = document.createElement('div');
-        document.body.appendChild(container);
+    // Tugma bosilganda ishga tushadi
+    document.getElementById('start').addEventListener('click', initAR);
 
-        scene = new THREE.Scene();
-        // 🚨 1-MUHIM: Sahna foni bo'sh (null) bo'lishi SHART, aks holda qora ekran bo'ladi
-        scene.background = null; 
-
-        camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
-
-        const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 3);
-        light.position.set(0.5, 1, 0.25);
-        scene.add(light);
-
-        // 🚨 2-MUHIM: Renderer sozlamalari
-        renderer = new THREE.WebGLRenderer({ 
-            antialias: true, 
-            alpha: true, // Orqa fon shaffof bo'lishi uchun
-            preserveDrawingBuffer: true // Ba'zi Androidlarda kerak bo'ladi
-        });
-        
-        renderer.setPixelRatio(window.devicePixelRatio);
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        
-        // 🚨 3-MUHIM: Majburiy shaffoflikni o'rnatamiz
-        renderer.setClearColor(0x000000, 0); // 0 = 100% shaffof
-        
-        renderer.xr.enabled = true;
-        container.appendChild(renderer.domElement);
-
-        // TEST MODEL (Yashil Kub)
-        const geometry = new THREE.BoxGeometry(0.3, 0.3, 0.3);
-        const material = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
-        mesh = new THREE.Mesh(geometry, material);
-        
-        // 2 metr oldinda
-        mesh.position.set(0, 0, -2);
-        scene.add(mesh);
-
-        document.getElementById('enter-ar').addEventListener('click', startAR);
-    }
-
-    async function startAR() {
+    async function initAR() {
         if (!navigator.xr) {
             alert("WebXR topilmadi (HTTPS va Chrome kerak)");
             return;
         }
 
-        try {
-            const session = await navigator.xr.requestSession('immersive-ar', {
-                requiredFeatures: ['local'],
-                optionalFeatures: ['dom-overlay'],
-                domOverlay: { root: document.body } // UI ko'rinib turishi uchun
-            });
+        // 1. SAHNANI YARATAMIZ
+        scene = new THREE.Scene();
+        // ⚠️ ENG MUHIM JOYI: Sening kodingdagi "gl.clearColor(0,0,0,0)" analogi:
+        scene.background = null; 
 
-            renderer.xr.setReferenceSpaceType('local');
-            renderer.xr.setSession(session);
+        // 2. KAMERA
+        camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
 
-            document.getElementById('enter-ar').style.display = 'none';
-            
-            renderer.setAnimationLoop(render);
-        } catch (e) {
-            alert("Sessiya ochilmadi: " + e.message);
-        }
+        // 3. YORUG'LIK (Model qop-qora bo'lmasligi uchun)
+        const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 3);
+        light.position.set(0.5, 1, 0.25);
+        scene.add(light);
+
+        // 4. RENDERER (WebXR ni yoqamiz)
+        renderer = new THREE.WebGLRenderer({ 
+            antialias: true, 
+            alpha: true // ⚠️ KAMERA OCHILISHI UCHUN SHART
+        });
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.xr.enabled = true; // WebXR aktivlashtiramiz
+        
+        // ⚠️ Sening kodingdagi "gl.clear" logikasi:
+        renderer.setClearColor(0x000000, 0); 
+        
+        document.body.appendChild(renderer.domElement);
+
+        // 5. MODEL YARATISH (Avtomatik)
+        // Hozircha murakkab shakl (TorusKnot) yaratamiz, xuddi haqiqiy modeldek.
+        const geometry = new THREE.TorusKnotGeometry(0.2, 0.05, 100, 16); 
+        const material = new THREE.MeshStandardMaterial({ color: 0x00aaff, roughness: 0.1, metalness: 0.5 });
+        model = new THREE.Mesh(geometry, material);
+
+        // 📍 JOYLASHTIRISH (Logika):
+        // WebXR da boshlang'ich nuqta (0,0,0) - bu telefoning turgan joyi.
+        // Biz modelni Z o'qi bo'yicha -1.5 metr (oldinga) suramiz.
+        model.position.set(0, 0, -1.5);
+        
+        scene.add(model);
+
+        // 6. SESSIYANI BOSHLASH
+        const session = await navigator.xr.requestSession('immersive-ar', {
+            requiredFeatures: ['local'] // 'local' bu 6DoF yurishni ta'minlaydi
+        });
+
+        renderer.xr.setReferenceSpaceType('local');
+        renderer.xr.setSession(session);
+
+        // Tugmani yo'qotamiz
+        document.getElementById('start').style.display = 'none';
+
+        // Render loop
+        renderer.setAnimationLoop(render);
     }
 
     function render() {
-        // Kubni aylantirib turamiz (ishlayotganini bilish uchun)
-        if(mesh) {
-            mesh.rotation.x += 0.01;
-            mesh.rotation.y += 0.01;
+        // Modelni sekin aylantiramiz (jonli ekanini bilish uchun)
+        if (model) {
+            model.rotation.x += 0.005;
+            model.rotation.y += 0.01;
         }
         renderer.render(scene, camera);
     }
 
-    window.addEventListener('resize', () => {
-        camera.aspect = window.innerWidth / window.innerHeight;
-        camera.updateProjectionMatrix();
-        renderer.setSize(window.innerWidth, window.innerHeight);
-    });
-
-    init();
 </script>
-
 </body>
 </html>
