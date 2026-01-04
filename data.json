@@ -1,0 +1,11 @@
+{
+  "1": [
+    { "id": "101", "title": "Registratsiya", "x": 6.0, "side": "left", "desc": "Ro'yxatga olish bo'limi" },
+    { "id": "102", "title": "Kassa", "x": 10.0, "side": "right", "desc": "To'lov qabul qilish" },
+    { "id": "103", "title": "Lift", "x": 15.0, "side": "left", "desc": "Yuqori qavatlarga" }
+  ],
+  "2": [
+    { "id": "201", "title": "Bosh Vrach", "x": 8.0, "side": "right", "desc": "Rahbariyat" },
+    { "id": "205", "title": "Rentgen Xonasi", "x": 12.0, "side": "left", "desc": "Raqamli rentgen" }
+  ]
+}

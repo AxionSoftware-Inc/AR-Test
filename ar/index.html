@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AR Navigatsiya (Pro)</title>
+    
+    <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
+
+    <style>
+        /* --- ASOSIY STIL --- */
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: #000; /* AR yuklanguncha qora fon */
+        }
+
+        /* --- UI CONTAINER (WebXR Overlay) --- */
+        #ui-container {
+            position: fixed;
+            inset: 0;
+            z-index: 999;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            pointer-events: none; /* Sahna bosilishi uchun */
+        }
+
+        /* Elementlar bosilishi uchun pointer-events qayta yoqiladi */
+        #ui-container > * {
+            pointer-events: auto;
+        }
+
+        /* --- BOSHLASH EKRANI --- */
+        #start-screen {
+            width: 90%;
+            max-width: 400px;
+            background: rgba(20, 20, 30, 0.6);
+            backdrop-filter: blur(15px);
+            -webkit-backdrop-filter: blur(15px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 24px;
+            padding: 30px;
+            text-align: center;
+            color: white;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+            display: flex; /* Boshida ko'rinadi */
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        h1 { margin: 0; font-size: 1.8rem; background: linear-gradient(90deg, #00d2ff, #00ff9d); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        p { color: #ccc; font-size: 0.95rem; line-height: 1.4; margin: 0; }
+        
+        .warning-icon { font-size: 3rem; margin-bottom: 10px; animation: bounce 2s infinite; }
+
+        /* --- TUGMALAR --- */
+        .btn-start {
+            background: #00d2ff;
+            color: #000;
+            border: none;
+            padding: 16px 32px;
+            font-size: 1.1rem;
+            font-weight: bold;
+            border-radius: 50px;
+            cursor: pointer;
+            box-shadow: 0 0 20px rgba(0, 210, 255, 0.4);
+            transition: transform 0.2s, box-shadow 0.2s;
+            width: 100%;
+        }
+
+        .btn-start:active { transform: scale(0.95); box-shadow: 0 0 10px rgba(0, 210, 255, 0.6); }
+
+        .link-lite {
+            margin-top: 10px;
+            color: rgba(255, 255, 255, 0.6);
+            text-decoration: none;
+            font-size: 0.85rem;
+            padding: 10px;
+            border-radius: 8px;
+            transition: color 0.3s;
+        }
+        .link-lite:hover { color: #fff; background: rgba(255,255,255,0.1); }
+
+        /* --- XONALAR RO'YXATI (Menu) --- */
+        #room-list-container {
+            display: none; /* Boshida yashirin */
+            width: 90%;
+            max-width: 500px;
+            max-height: 70vh;
+            background: rgba(10, 20, 35, 0.7);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-radius: 20px;
+            padding: 15px;
+            overflow-y: auto;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+        }
+
+        .room-item {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 15px;
+            margin-bottom: 10px;
+            color: white;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .room-item:hover { background: rgba(0, 210, 255, 0.2); border-color: #00d2ff; }
+        .room-item:active { transform: scale(0.98); }
+        .room-title { font-weight: bold; font-size: 1.1rem; }
+        .room-desc { font-size: 0.8rem; color: #aaa; margin-top: 4px; }
+        .room-arrow { font-size: 1.2rem; color: #00d2ff; }
+
+        /* --- HUD (Navigatsiya jarayoni) --- */
+        #hud {
+            display: none; /* Faqat yurayotganda chiqadi */
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.6);
+            padding: 10px 25px;
+            border-radius: 30px;
+            color: #00ff9d;
+            font-weight: bold;
+            font-size: 1.1rem;
+            border: 1px solid rgba(0, 255, 157, 0.3);
+            text-align: center;
+            z-index: 1000;
+        }
+
+        .hud-sub { font-size: 0.8rem; color: white; display: block; font-weight: normal; }
+        
+        /* Menu qaytish tugmasi */
+        #btn-reset {
+            display: none;
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(255, 50, 50, 0.8);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 20px;
+            font-weight: bold;
+            cursor: pointer;
+            z-index: 1000;
+        }
+
+        @keyframes bounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+    </style>
+</head>
+
+<body>
+
+    <div id="ui-container">
+        
+        <div id="start-screen">
+            <div class="warning-icon">📍</div>
+            <h1>AR Navigatsiya</h1>
+            <p id="floor-indicator">Qavat aniqlanmoqda...</p>
+            <p style="font-size: 0.85rem; color: #ffd700;">
+                DIQQAT: QR kod ro'parasida turing va "Boshlash" tugmasini bosing. Bu nuqta 0-hisoblanadi.
+            </p>
+            <button class="btn-start" id="start-btn">BOSHLASH 🚀</button>
+            
+            <a href="../lite/index.html" class="link-lite">
+                Telefon qotayaptimi? <b>Lite versiyaga o'tish</b>
+            </a>
+        </div>
+
+        <div id="room-list-container">
+            <h3 style="text-align:center; color:#fff; margin-top:0;">Qayerga boramiz?</h3>
+            <div id="room-list"></div>
+        </div>
+
+    </div>
+
+    <div id="hud">
+        <span id="dist-val">0</span>m
+        <span class="hud-sub" id="hud-hint">To'g'riga</span>
+    </div>
+
+    <button id="btn-reset" onclick="resetNavigation()">Menyuga qaytish</button>
+
+    <a-scene 
+        webxr="requiredFeatures: local-floor, dom-overlay; overlayElement: #ui-container"
+        renderer="antialias: true; colorManagement: true; sortObjects: true;" 
+        vr-mode-ui="enabled: false">
+
+        <a-assets>
+            </a-assets>
+
+        <a-camera id="cam" position="0 1.6 0" look-controls="enabled: false"></a-camera>
+
+        <a-entity id="ar-world" position="0 0 0"></a-entity>
+
+    </a-scene>
+
+    <script src="script.js"></script>
+
+</body>
+</html>

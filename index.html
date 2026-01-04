@@ -1,215 +1,52 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="uz">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>Raw WebXR 6DoF</title>
-<style>
-  body { margin: 0; overflow: hidden; background: #000; }
-  canvas { display: block; width: 100vw; height: 100vh; }
-  #btn {
-    position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
-    padding: 12px 24px; font-size: 18px; z-index: 10;
-    background: white; border: none; border-radius: 4px;
-  }
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Yo'naltirilmoqda...</title>
+    <style>
+        body { background: #000; color: #00d2ff; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; font-family: sans-serif; text-align: center; }
+        .loader { width: 50px; height: 50px; border: 5px solid #333; border-top: 5px solid #00d2ff; border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 20px; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
 </head>
 <body>
+    <div class="loader"></div>
+    <div id="status">Tizim tekshirilmoqda...</div>
 
-<button id="btn">START AR</button>
-<canvas id="xr-canvas"></canvas>
+    <script>
+        // 1. URL parametrlarini saqlab qolamiz (?floor=2)
+        const params = window.location.search;
 
-<script>
-// --- SHADERLAR (Rangli 3D Piramida chizish uchun) ---
-const vertShaderSource = `
-  attribute vec3 aPos;
-  attribute vec3 aColor;
-  varying vec3 vColor;
-  uniform mat4 uModel;
-  uniform mat4 uView;
-  uniform mat4 uProj;
-  void main() {
-    gl_Position = uProj * uView * uModel * vec4(aPos, 1.0);
-    vColor = aColor;
-  }
-`;
+        function go(mode) {
+            document.getElementById('status').innerText = (mode === 'ar' ? "6DoF" : "Lite") + " rejimiga o'tilmoqda...";
+            // 500ms ushlab turamiz, foydalanuvchi nimadir bo'layotganini ko'rsin
+            setTimeout(() => {
+                window.location.replace(mode + "/index.html" + params);
+            }, 500);
+        }
 
-const fragShaderSource = `
-  precision mediump float;
-  varying vec3 vColor;
-  void main() {
-    gl_FragColor = vec4(vColor, 1.0);
-  }
-`;
+        async function checkSystem() {
+            // WebXR bormi?
+            if ('xr' in navigator) {
+                try {
+                    // AR (Immersive) rejimi bormi?
+                    const isARSupported = await navigator.xr.isSessionSupported('immersive-ar');
+                    if (isARSupported) {
+                        go('ar'); // 6DoF
+                    } else {
+                        go('lite'); // 3DoF
+                    }
+                } catch (e) {
+                    console.error(e);
+                    go('lite'); // Xatolik bo'lsa Lite ga
+                }
+            } else {
+                go('lite'); // WebXR umuman yo'q (eski iOS/Android)
+            }
+        }
 
-// --- O'ZGARUVCHILAR ---
-let gl, session, refSpace;
-let program, uModel, uView, uProj;
-let modelMatrix = null; // Modelning dunyodagi joyi
-
-// Tugma bosilganda
-document.getElementById('btn').addEventListener('click', async () => {
-  if (!navigator.xr) return alert("WebXR yo'q");
-  
-  // 1. Context olish
-  const canvas = document.getElementById('xr-canvas');
-  gl = canvas.getContext('webgl', { xrCompatible: true });
-
-  // 2. Shaderlarni kompilyatsiya qilish
-  initShaders();
-  initBuffers();
-
-  // 3. Sessiya ochish
-  session = await navigator.xr.requestSession('immersive-ar', { requiredFeatures: ['local'] });
-  session.updateRenderState({ baseLayer: new XRWebGLLayer(session, gl) });
-  
-  refSpace = await session.requestReferenceSpace('local');
-  
-  document.getElementById('btn').style.display = 'none';
-  session.requestAnimationFrame(onFrame);
-});
-
-// --- RENDER LOOP ---
-function onFrame(t, frame) {
-  session.requestAnimationFrame(onFrame);
-  const pose = frame.getViewerPose(refSpace);
-  if (!pose) return;
-
-  const layer = session.renderState.baseLayer;
-  gl.bindFramebuffer(gl.FRAMEBUFFER, layer.framebuffer);
-  
-  // Ekranni tozalash (MUHIM: Transparent bo'lishi uchun)
-  gl.clearColor(0, 0, 0, 0);
-  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-
-  // Agar Model joylashmagan bo'lsa, uni userning oldiga qo'yamiz
-  if (!modelMatrix) {
-    // Userning hozirgi matritsasini olamiz
-    const transform = pose.views[0].transform;
-    // Oddiy matematika bilan 1.5 metr oldinga suramiz
-    modelMatrix = placeObjectInFront(transform.matrix, 1.5);
-  }
-
-  // Har bir ko'z uchun chizamiz
-  pose.views.forEach(view => {
-    const vp = layer.getViewport(view);
-    gl.viewport(vp.x, vp.y, vp.width, vp.height);
-
-    gl.useProgram(program);
-
-    // Matritsalarni shaderga jo'natish
-    gl.uniformMatrix4fv(uModel, false, modelMatrix);
-    gl.uniformMatrix4fv(uView, false, view.transform.inverse.matrix);
-    gl.uniformMatrix4fv(uProj, false, view.projectionMatrix);
-
-    // Chizish (Piramida - 12 ta nuqta)
-    gl.drawArrays(gl.TRIANGLES, 0, 12);
-  });
-}
-
-// --- SETUP FUNKSIYALARI ---
-
-function initShaders() {
-  const vs = createShader(gl.VERTEX_SHADER, vertShaderSource);
-  const fs = createShader(gl.FRAGMENT_SHADER, fragShaderSource);
-  program = gl.createProgram();
-  gl.attachShader(program, vs);
-  gl.attachShader(program, fs);
-  gl.linkProgram(program);
-  
-  uModel = gl.getUniformLocation(program, 'uModel');
-  uView = gl.getUniformLocation(program, 'uView');
-  uProj = gl.getUniformLocation(program, 'uProj');
-}
-
-function createShader(type, source) {
-  const s = gl.createShader(type);
-  gl.shaderSource(s, source);
-  gl.compileShader(s);
-  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
-    console.error(gl.getShaderInfoLog(s));
-  }
-  return s;
-}
-
-function initBuffers() {
-  // Piramida (Uchburchak) nuqtalari
-  // X, Y, Z coordinates
-  const vertices = new Float32Array([
-    // Oldi yuz (Qizil)
-     0.0,  0.2, -0.2, // Tepasi
-    -0.2, -0.2, -0.0, // Chap
-     0.2, -0.2, -0.0, // O'ng
-
-    // O'ng yuz (Yashil)
-     0.0,  0.2, -0.2,
-     0.2, -0.2, -0.0,
-     0.0, -0.2, -0.4, // Orqa
-
-    // Chap yuz (Ko'k)
-     0.0,  0.2, -0.2,
-     0.0, -0.2, -0.4,
-    -0.2, -0.2, -0.0,
-
-    // Tag qismi (Sariq)
-    -0.2, -0.2, -0.0,
-     0.2, -0.2, -0.0,
-     0.0, -0.2, -0.4
-  ]);
-
-  const colors = new Float32Array([
-    // Qizil
-    1,0,0, 1,0,0, 1,0,0,
-    // Yashil
-    0,1,0, 0,1,0, 0,1,0,
-    // Ko'k
-    0,0,1, 0,0,1, 0,0,1,
-    // Sariq
-    1,1,0, 1,1,0, 1,1,0
-  ]);
-
-  const posBuffer = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, posBuffer);
-  gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
-  const aPos = gl.getAttribLocation(program, 'aPos');
-  gl.enableVertexAttribArray(aPos);
-  gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 0, 0);
-
-  const colBuffer = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, colBuffer);
-  gl.bufferData(gl.ARRAY_BUFFER, colors, gl.STATIC_DRAW);
-  const aColor = gl.getAttribLocation(program, 'aColor');
-  gl.enableVertexAttribArray(aColor);
-  gl.vertexAttribPointer(aColor, 3, gl.FLOAT, false, 0, 0);
-}
-
-// --- MATEMATIKA (Kutubxonasiz) ---
-// Modelni userning oldiga qo'yish logikasi
-function placeObjectInFront(matrix, distance) {
-  // Matritsadan nusxa olamiz
-  let m = new Float32Array(matrix);
-  
-  // WebXR matritsasida:
-  // 0,1,2,3  -> Right vector
-  // 4,5,6,7  -> Up vector
-  // 8,9,10,11 -> Back vector (Z)
-  // 12,13,14,15 -> Position (X,Y,Z,1)
-
-  // Biz "Back vector" (Z) yo'nalishida teskari yuramiz (minus Z = oldinga)
-  // m[8], m[9], m[10] bu Z o'qining yo'nalishi
-  
-  const forwardX = -m[8];
-  const forwardY = -m[9];
-  const forwardZ = -m[10];
-
-  // Hozirgi joyiga "distance" miqdorini qo'shamiz
-  m[12] += forwardX * distance;
-  m[13] += forwardY * distance;
-  m[14] += forwardZ * distance;
-
-  return m;
-}
-
-</script>
+        checkSystem();
+    </script>
 </body>
 </html>
